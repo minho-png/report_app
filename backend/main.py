@@ -1,16 +1,20 @@
 import pandas as pd
-<<<<<<< HEAD
+import re
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
+# 로그 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 
-# CORS 설정: origins에 프론트엔드 주소를 명시적으로 추가하여 안정성을 높입니다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8000", "*"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -20,128 +24,95 @@ class AnalysisRequest(BaseModel):
     mix_rows: List[Dict[str, Any]]
     mappings: Dict[str, Any]
 
+def clean_numeric(series, name="column"):
+    """사람이 보기 쉬운 형태(1,234, ₩500)를 숫자로 변환하며 로그 출력"""
+    def _parse(val):
+        if pd.isna(val) or val == '': return 0
+        if isinstance(val, (int, float)): return val
+        cleaned = re.sub(r'[^\d.]', '', str(val))
+        try:
+            return float(cleaned) if '.' in cleaned else int(cleaned)
+        except:
+            return 0
+    
+    result = series.apply(_parse)
+    logger.info(f"[Data Cleaning] {name}: 변환 완료 (샘플: {result.iloc[0] if not result.empty else 'N/A'})")
+    return result
+
 @app.post("/analyze")
 async def analyze_data(req: AnalysisRequest):
+    logger.info("=== 백엔드 분석 시작 ===")
     try:
         raw_df = pd.DataFrame(req.raw_rows)
-        mix_df = pd.DataFrame(req.mix_rows)
         r_map = req.mappings.get('raw_mapping')
-        m_map = req.mappings.get('mix_mapping')
+        
+        if not r_map:
+            logger.error("매핑 정보가 전달되지 않았습니다.")
+            raise HTTPException(status_code=400, detail="매핑 정보 누락")
 
-        if not r_map or not m_map:
-            raise HTTPException(status_code=400, detail="매핑 정보가 부족합니다.")
+        logger.info(f"전달된 컬럼 매핑: {r_map}")
 
-        # 예산 데이터 매핑
-        budgets = {}
-        for _, row in mix_df.iterrows():
-            name = str(row.get(m_map['media_name_col'], '')).strip()
-            val = pd.to_numeric(str(row.get(m_map['budget_col'], '0')).replace(',', ''), errors='coerce') or 0
-            if name:
-                budgets[name] = val
+        # 데이터 정제 및 변환
+        date_col = r_map['date_col']
+        raw_df[date_col] = pd.to_datetime(raw_df[date_col], errors='coerce')
+        raw_df = raw_df.dropna(subset=[date_col])
+        logger.info(f"유효한 데이터 행 수: {len(raw_df)}")
 
-        # 날짜 및 성과 계산 로직
-        raw_df[r_map['date_col']] = pd.to_datetime(raw_df[r_map['date_col']])
-        dates = sorted(raw_df[r_map['date_col']].unique(), reverse=True)
+        raw_df[r_map['imp_col']] = clean_numeric(raw_df[r_map['imp_col']], "노출량")
+        raw_df[r_map['cost_col']] = clean_numeric(raw_df[r_map['cost_col']], "집행금액")
+        
+        if r_map.get('click_col'):
+            raw_df[r_map['click_col']] = clean_numeric(raw_df[r_map['click_col']], "클릭수")
+
+        # 날짜 추출
+        dates = sorted(raw_df[date_col].unique(), reverse=True)
         if len(dates) < 2:
-            return {"error": "비교할 전일 데이터가 부족합니다."}
+            logger.warning("날짜 데이터 부족")
+            return {"error": "비교 분석을 위해 최소 2일 이상의 데이터가 필요합니다."}
         
         t_date, p_date = dates[0], dates[1]
-        
-        # ... (이후 성과 집계 로직 동일) ...
-        # 결과를 반환할 때 날짜를 문자열로 변환하여 JSON 오류를 방지합니다.
+        logger.info(f"분석 날짜: 기준일({t_date}), 비교일({p_date})")
+
+        def get_stats(df, target_date):
+            day_df = df[df[date_col] == target_date]
+            return {
+                "impressions": int(day_df[r_map['imp_col']].sum()),
+                "clicks": int(day_df[r_map['click_col']].sum()) if r_map.get('click_col') else 0,
+                "spend": int(day_df[r_map['cost_col']].sum())
+            }
+
+        overall_today = get_stats(raw_df, t_date)
+        overall_prev = get_stats(raw_df, p_date)
+        logger.info(f"전체 집계 완료: {overall_today['impressions']} 노출")
+
+        # 매체별 비교
+        media_comparison = []
+        for media in raw_df[r_map['media_col']].unique():
+            m_df = raw_df[raw_df[r_map['media_col']] == media]
+            t_stats = get_stats(m_df, t_date)
+            p_stats = get_stats(m_df, p_date)
+            
+            p_imp = p_stats['impressions']
+            delta = round(((t_stats['impressions'] - p_imp) / p_imp * 100), 1) if p_imp > 0 else 0
+            
+            media_comparison.append({
+                "name": str(media),
+                "metrics": {
+                    "impressions": {"today": t_stats['impressions'], "prev": p_imp, "delta": delta}
+                }
+            })
+
+        logger.info("=== 백엔드 분석 성공 ===")
         return {
             "date": t_date.strftime('%Y-%m-%d'),
             "prevDate": p_date.strftime('%Y-%m-%d'),
-            "mediaComparison": [], # 계산된 리스트
-            "overall": {}          # 계산된 요약
+            "mediaComparison": media_comparison,
+            "overall": {
+                "impressions": {"today": overall_today['impressions'], "prev": overall_prev['impressions']},
+                "clicks": {"today": overall_today['clicks'], "prev": overall_prev['clicks']},
+                "spend": {"today": overall_today['spend'], "prev": overall_prev['spend']}
+            }
         }
     except Exception as e:
-        # 서버 에러 발생 시 상세 내용을 반환하여 500 에러 원인을 파악합니다.
+        logger.error(f"백엔드 에러 발생: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-=======
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-import io
-
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-def find_col(columns, keywords):
-    """키워드 리스트 중 컬럼명에 포함된 첫 번째 컬럼 반환"""
-    for col in columns:
-        if any(k in str(col) for k in keywords):
-            return col
-    return None
-
-@app.post("/analyze")
-async def analyze_excel(file: UploadFile = File(...)):
-    contents = await file.read()
-    excel = pd.ExcelFile(io.BytesIO(contents))
-    
-    # 1. RAW 데이터 시트 찾기
-    raw_sheet = next((s for s in excel.sheet_names if 'raw' in s.lower()), excel.sheet_names[-1])
-    df = excel.parse(raw_sheet)
-    df.columns = [str(c).strip() for c in df.columns]
-
-    # 2. 필수 컬럼 자동 매핑
-    date_col = find_col(df.columns, ['날짜', 'Date'])
-    media_col = find_col(df.columns, ['매체', 'Media', 'Platform'])
-    creative_col = find_col(df.columns, ['소재', 'Creative', 'Content']) # 소재 컬럼 유무 확인
-    imp_col = find_col(df.columns, ['노출', 'Imp'])
-    clk_col = find_col(df.columns, ['클릭', 'Click'])
-    cost_col = find_col(df.columns, ['금액', 'Cost', 'Spend'])
-
-    # 날짜 형식 변환 및 정렬
-    df[date_col] = pd.to_datetime(df[date_col])
-    all_dates = sorted(df[date_col].unique(), reverse=True)
-    
-    if len(all_dates) < 2:
-        return {"error": "비교할 전일 데이터가 부족합니다."}
-
-    target_date = all_dates[0]
-    prev_date = all_dates[1]
-
-    # 3. 데이터 요약 함수 (매체/소재별)
-    def get_comparison(groupby_col):
-        if not groupby_col: return []
-        
-        # 해당일 및 전일 데이터 필터링
-        filtered = df[df[date_col].isin([target_date, prev_date])]
-        summary = filtered.groupby([date_col, groupby_col]).agg({
-            imp_col: 'sum', clk_col: 'sum', cost_col: 'sum'
-        }).reset_index()
-
-        comparison = []
-        for name in summary[groupby_col].unique():
-            today_row = summary[(summary[groupby_col] == name) & (summary[date_col] == target_date)]
-            prev_row = summary[(summary[groupby_col] == name) & (summary[date_col] == prev_date)]
-            
-            t_imp = int(today_row[imp_col].sum())
-            p_imp = int(prev_row[imp_col].sum())
-            t_clk = int(today_row[clk_col].sum())
-            p_clk = int(prev_row[clk_col].sum())
-            t_cost = int(today_row[cost_col].sum())
-            p_cost = int(prev_row[cost_col].sum())
-
-            comparison.append({
-                "name": name,
-                "metrics": {
-                    "impressions": {"today": t_imp, "prev": p_imp, "delta": round(((t_imp-p_imp)/p_imp*100),1) if p_imp else 0},
-                    "clicks": {"today": t_clk, "prev": p_clk, "delta": round(((t_clk-p_clk)/p_clk*100),1) if p_clk else 0},
-                    "spend": {"today": t_cost, "prev": p_cost, "delta": round(((t_cost-p_cost)/p_cost*100),1) if p_cost else 0}
-                }
-            })
-        return comparison
-
-    return {
-        "date": target_date.strftime('%Y-%m-%d'),
-        "prevDate": prev_date.strftime('%Y-%m-%d'),
-        "mediaComparison": get_comparison(media_col),
-        "creativeComparison": get_comparison(creative_col) if creative_col else None,
-        "overall": {
-            "impressions": {"today": int(df[df[date_col]==target_date][imp_col].sum()), "prev": int(df[df[date_col]==prev_date][imp_col].sum())},
-            "clicks": {"today": int(df[df[date_col]==target_date][clk_col].sum()), "prev": int(df[df[date_col]==prev_date][clk_col].sum())},
-            "spend": {"today": int(df[df[date_col]==target_date][cost_col].sum()), "prev": int(df[df[date_col]==prev_date][cost_col].sum())}
-        }
-    }
->>>>>>> e3ed5bec679515fda425b8b373b53aac10cdbb8d
