@@ -1,0 +1,90 @@
+{
+<<<<<<< HEAD
+  "name": "dmp-platform-root",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "install:all": "npm install && npm install --prefix frontend",
+    "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:electron": "wait-on http://localhost:5173 && cross-env IS_DEV=true electron .",
+    "start": "concurrently -k \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:electron\""
+  },
+  "devDependencies": {
+=======
+  "name": "dmp-platform",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "start": "npm run electron:dev",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "electron:dev": "concurrently -k \"cross-env BROWSER=none vite\" \"wait-on http://localhost:8000 && cross-env IS_DEV=true electron .\"",
+    "electron:build": "tsc && vite build && electron-builder"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "chart.js": "^4.5.1",
+    "html2pdf.js": "^0.14.0",
+    "lucide-react": "^0.294.0",
+    "pdfjs-dist": "^5.4.530",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^18.2.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+>>>>>>> e3ed5bec679515fda425b8b373b53aac10cdbb8d
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0",
+<<<<<<< HEAD
+    "wait-on": "^9.0.3"
+  }
+}
+=======
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.dmp.platform",
+    "productName": "DMP Platform",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "arch": [
+        "x64"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
+>>>>>>> e3ed5bec679515fda425b8b373b53aac10cdbb8d
