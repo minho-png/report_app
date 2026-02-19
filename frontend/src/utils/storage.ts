@@ -1,41 +1,83 @@
-/**
- * 통합 저장소 모듈
- * path: src/utils/storage.ts
- */
+import { AnalysisResponse } from '../types/report';
 
-// 데이터 타입에 상관없이 저장 가능하도록 any 타입 허용
-export const storage = {
-    save: (title: string, data: any): string => {
-      const id = Date.now().toString();
-      const timestamp = Date.now();
-      
-      // 기존 데이터 로드
-      const existingDataStr = localStorage.getItem('dmp_analysis_results');
-      const existingData = existingDataStr ? JSON.parse(existingDataStr) : [];
-      
-      // 새 데이터 추가
-      const newData = {
+const STORAGE_KEY = 'dmp_report_history';
+
+export interface HistoryItem {
+  id: string;
+  date: string;
+  created_at: string;
+  advertiser: string;
+  brandColor?: string;
+  report: AnalysisResponse;
+  raw?: any; // Excel data
+}
+
+export const storageService = {
+  saveReport: (report: AnalysisResponse, rawData?: any): string => {
+    try {
+      const history = storageService.getAll();
+
+      const id = report.id || crypto.randomUUID();
+      const newItem: HistoryItem = {
         id,
-        timestamp,
-        title,
-        data // DMP 타겟 데이터 또는 리포트 데이터 모두 수용
+        date: report.date,
+        created_at: new Date().toISOString(),
+        advertiser: report.advertiser || 'Unknown',
+        brandColor: report.brandColor,
+        report: { ...report, id },
+        raw: rawData
       };
-      
-      const updatedData = [newData, ...existingData];
-      localStorage.setItem('dmp_analysis_results', JSON.stringify(updatedData));
-      
+
+      // Check if exists?
+      const existingIndex = history.findIndex(h => h.id === id);
+      if (existingIndex >= 0) {
+        history[existingIndex] = newItem;
+      } else {
+        history.unshift(newItem); // Add to top
+      }
+
+      // Limit history size (e.g., 50 items) to prevent quota exceeded
+      const limitedHistory = history.slice(0, 50);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(limitedHistory));
       return id;
-    },
-  
-    loadAll: () => {
-      const dataStr = localStorage.getItem('dmp_analysis_results');
-      return dataStr ? JSON.parse(dataStr) : [];
-    },
-  
-    loadById: (id: string) => {
-      const dataStr = localStorage.getItem('dmp_analysis_results');
-      if (!dataStr) return null;
-      const list = JSON.parse(dataStr);
-      return list.find((item: any) => item.id === id) || null;
+    } catch (e) {
+      console.error("Failed to save to localStorage", e);
+      // Handle quota exceeded?
+      return "";
     }
-  };
+  },
+
+  getAll: (): HistoryItem[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      console.error("Failed to read from localStorage", e);
+      return [];
+    }
+  },
+
+  getById: (id: string): HistoryItem | null => {
+    const history = storageService.getAll();
+    return history.find(item => item.id === id) || null;
+  },
+
+  deleteById: (id: string) => {
+    const history = storageService.getAll();
+    const newHistory = history.filter(item => item.id !== id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
+  },
+
+  updateReport: (id: string, updatedReport: AnalysisResponse) => {
+    const history = storageService.getAll();
+    const index = history.findIndex(h => h.id === id);
+    if (index >= 0) {
+      history[index].report = updatedReport;
+      history[index].report.id = id; // Ensure ID persists
+      // Keep existing raw data
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    }
+  }
+};

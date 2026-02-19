@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/out
+**/build
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.git
+**/.gitignore
+**/.vscode
+**/.DS_Store

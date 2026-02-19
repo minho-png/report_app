@@ -1,83 +1,58 @@
-# DMP Platform - Targeting Manager
+# DMP Platform - Analysis Hub
 
-React + TypeScript + Tailwind CSS로 구축된 DMP 타겟팅 관리 플랫폼입니다.
+웹 전용 아키텍처(FastAPI + Next.js)를 기반으로 구축된 데이터 분석 플랫폼입니다.
 
-## 주요 기능
+## 아키텍처 (Architecture: Frontend - Gateway - Backend)
 
-- **RAG 기반 데이터 분석**: JSONL 파일들을 활용한 세그먼트 데이터 분석
-- **LLM 챗봇**: 자연어로 데이터 분석 및 타겟 그룹 생성 요청
-- **타겟팅 관리**: 생성된 타겟 그룹과 세그먼트를 시각적으로 관리
-- **로직 편집기**: 타겟팅 로직을 직접 편집하고 복사
+본 프로젝트는 서비스의 확장성과 엔트리 포인트 제어를 위해 **3계층 구조(3-Tier Architecture)**를 따릅니다.
 
-## 설치 및 실행
+### 1. Frontend (Next.js 14+)
+- **View (V)**: `frontend/src/components` - 사용자 UI 및 리포트 시각화
+- **Controller (C)**: `frontend/src/services` & Hooks - API 호출 및 상태 제어
 
-### 1. 의존성 설치
+### 2. Gateway (FastAPI Entry - Port 8000)
+- **Role**: 모든 외부 요청의 관문(Entry Point). 프론트엔드로부터 요청을 받아 Backend(8001)로 중계(Proxy)합니다.
+- **Controller**: `gateway/api` - 엔드포인트 정의 및 `httpx`를 통한 백엔드 API 호출.
 
+### 3. Backend (Core Engine - Port 8001)
+- **Role**: 실제 분석 기능이 수립되어 있는 핵심 서버입니다.
+- **Services**: `backend/services` - 분석 로직, AI 인사이트 생성.
+- **API**: `backend/main.py` - 내부 분석 API를 제공합니다.
+
+## 시작하기
+
+### 1. 개발 환경 설치
 ```bash
-npm install
+npm run install:all
 ```
 
-### 2. 환경 변수 설정
-
-`.env` 파일을 생성하고 다음 내용을 추가하세요:
-
-```env
-VITE_LLM_API_URL=https://api.openai.com/v1/chat/completions
-VITE_LLM_API_KEY=your_api_key_here
-VITE_LLM_MODEL=gpt-4
-```
-
-### 3. 데이터 파일 준비
-
-프로젝트 루트에 다음 JSONL 파일들이 있어야 합니다:
-- `Lotte.jsonl`
-- `skp표준.jsonl`
-- `KB DMP.jsonl`
-- `TG360_data.jsonl`
-- `wifi.jsonl`
-
-### 4. 개발 서버 실행
-
+### 2. 프로젝트 실행 (Local)
 ```bash
 npm run dev
 ```
 
-### 5. 빌드
-
+### 3. Docker로 실행
+Docker와 Docker Compose가 설치되어 있어야 합니다.
 ```bash
-npm run build
+docker compose up --build
 ```
+- Frontend: `http://localhost:3000`
+- Gateway: `http://localhost:8000`
+- Backend: `http://localhost:8001`
 
-## 사용 방법
+## 배포 (Deployment)
 
-1. **챗봇 화면**: 앱을 실행하면 첫 화면에서 챗봇이 표시됩니다.
-2. **데이터 분석 요청**: "데이터 분석 시작" 또는 "타겟 그룹 생성"이라고 입력하세요.
-3. **결과 확인**: LLM이 생성한 타겟 그룹과 RAW_DATA가 자동으로 결과 화면에 표시됩니다.
-4. **타겟팅 관리**: 결과 화면에서 세그먼트를 선택하고 타겟팅 로직을 편집할 수 있습니다.
+### Vercel (Frontend)
+이 프로젝트는 Vercel에 최적화되어 있습니다. GitHub 레포지토리를 연결하여 배포할 수 있습니다.
+- **Root Directory**: `frontend`로 설정
+- **Environment Variable**: `NEXT_PUBLIC_API_URL`에 Gateway URL 설정 (예: `https://your-gateway.com/api/analysis`)
 
-## 프로젝트 구조
-
-```
-src/
-├── components/
-│   ├── ChatBot.tsx          # LLM 챗봇 컴포넌트
-│   └── SegmentManager.tsx   # 타겟팅 관리 컴포넌트
-├── utils/
-│   ├── rag.ts               # RAG 시스템 (JSONL 파싱 및 검색)
-│   ├── llm.ts               # LLM API 연동
-│   └── dataProcessor.ts    # LLM 응답 파싱
-├── App.tsx                  # 메인 앱 컴포넌트
-└── main.tsx                 # 진입점
-```
+## 주요 기능
+- **광고주 인식**: 엑셀 데이터에서 광고주를 인식하여 리포트 테마 자동 변경
+- **AI 인사이트**: Gemini를 연동한 전문적인 데이터 성과 분석
+- **실시간 스트리밍**: 분석 단계별 진행 상황을 실시간으로 확인
 
 ## 기술 스택
-
-- **React 18**: UI 프레임워크
-- **TypeScript**: 타입 안정성
-- **Tailwind CSS**: 스타일링
-- **Vite**: 빌드 도구
-- **Lucide React**: 아이콘
-
-## 라이선스
-
-MIT
+- **Backend**: FastAPI, Pandas, Gemini AI
+- **Frontend**: Next.js, TypeScript, Tailwind CSS, Recharts
+- **Storage**: Browser LocalStorage
